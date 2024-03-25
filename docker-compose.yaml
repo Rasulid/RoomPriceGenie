@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: "rpg_db"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    env_file:
+      - '.env'
+    environment:
+      - POSTGRES_USER=${DB_USER-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD-postgres}
+      - POSTGRES_DB=${DB_NAME-room_price_genie}
+      - POSTGRES_HOST_AUTH_METHOD=md5
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: "rpg_redis"
+    expose:
+      - "6379"
+
+  web:
+    container_name: "rpg_web"
+    build: .
+    image: rpg_web:latest
+    ports:
+      - "${SVC_PORT-8000}:8000"
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - '.env'
+    command: bash -c "python manage.py migrate"
+
+
+  celery:
+    container_name: "rpg_celery"
+    build: .
+    image: rpg_celery:latest
+    entrypoint: bash -c "celery -A RoomPriceGenie worker -E -l info --pool=solo"
+    volumes:
+      - .:/app
+    env_file:
+      - '.env'
+    depends_on:
+      - web
+      - redis
+
+  celerybeat:
+    container_name: "rpg_celerybeat"
+    build: .
+    image:  rpg_celerybeat:latest
+    entrypoint: bash -c "celery -A RoomPriceGenie beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+    volumes:
+      - .:/app
+    env_file:
+      - '.env'
+    depends_on:
+      - web
+      - redis
+
+volumes:
+  postgres_data:
